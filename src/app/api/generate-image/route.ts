@@ -43,16 +43,11 @@ export async function POST(request: NextRequest) {
         model = genAI.getGenerativeModel({
           model: modelName,
           generationConfig: {
-            responseModalities: ['Text', 'Image'],
             temperature: 0.7, // Balanced creativity
             topP: 0.9,
             topK: 40
           },
-          systemInstruction: {
-            parts: [{
-              text: "You are an expert YouTube thumbnail generator. Always create wide angle images in landscape/horizontal format. Generate widescreen thumbnails that are perfect for YouTube."
-            }]
-          }
+          systemInstruction: "You are an expert YouTube thumbnail generator. Always create wide angle images in landscape/horizontal format. Generate widescreen thumbnails that are perfect for YouTube."
         });
         
         console.log(`Model ${modelName} initialized successfully`);

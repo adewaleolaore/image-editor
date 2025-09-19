@@ -13,14 +13,12 @@ interface ImageHistoryItem {
 }
 
 export default function Home() {
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [currentImage, setCurrentImage] = useState<string | null>(null); // The current working image
   const [imageHistory, setImageHistory] = useState<ImageHistoryItem[]>([]); // History of all edits
   const [prompt, setPrompt] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [processingState, setProcessingState] = useState<ProcessingState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [isGenerateMode, setIsGenerateMode] = useState(false); // Toggle between edit and generate modes
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,7 +27,6 @@ export default function Home() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const imageData = e.target?.result as string;
-        setUploadedImage(imageData);
         setCurrentImage(imageData);
         // Reset history when uploading a new image
         setImageHistory([]);
@@ -49,7 +46,6 @@ export default function Home() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const imageData = e.target?.result as string;
-        setUploadedImage(imageData);
         setCurrentImage(imageData);
         // Reset history when uploading a new image
         setImageHistory([]);
@@ -92,11 +88,9 @@ export default function Home() {
       // Store the generated image result and start history
       if (result.generatedImage) {
         setErrorMessage(null);
-        setAnalysisResult(result.responseText);
         
         // Set the generated image as the current image
         setCurrentImage(result.generatedImage);
-        setUploadedImage(result.generatedImage); // Also set as uploaded for consistency
         
         // Initialize history with the generation prompt
         const historyItem: ImageHistoryItem = {
@@ -158,8 +152,6 @@ export default function Home() {
       // Store the processed image result and update history
       if (result.processedImage) {
         setErrorMessage(null);
-        setAnalysisResult(result.responseText);
-        
         // Add current image to history before updating to new image
         const historyItem: ImageHistoryItem = {
           id: Date.now().toString(),
@@ -332,7 +324,6 @@ export default function Home() {
                         type="button"
                         onClick={() => {
                           setCurrentImage(null);
-                          setUploadedImage(null);
                           setImageHistory([]);
                           setProcessingState('idle');
                           setErrorMessage(null);
@@ -378,7 +369,6 @@ export default function Home() {
                         type="button"
                         onClick={() => {
                           setCurrentImage(null);
-                          setUploadedImage(null);
                           setImageHistory([]);
                           setProcessingState('idle');
                           setErrorMessage(null);

@@ -46,10 +46,7 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`Trying model: ${modelName}`);
         model = genAI.getGenerativeModel({
-          model: modelName,
-          generationConfig: {
-            responseModalities: ['Text', 'Image']
-          }
+          model: modelName
         });
         
         // Test the model with a simple request to ensure it works
