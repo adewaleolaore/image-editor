@@ -21,6 +21,7 @@ export default function Home() {
   const [processingState, setProcessingState] = useState<ProcessingState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [isGenerateMode, setIsGenerateMode] = useState(false); // Toggle between edit and generate modes
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -66,6 +67,60 @@ export default function Home() {
 
   const handleDragLeave = () => {
     setIsDragging(false);
+  };
+
+  const generateImageWithGemini = async (prompt: string) => {
+    try {
+      setProcessingState('processing');
+      setErrorMessage(null);
+      
+      // Call our Gemini image generation API endpoint
+      const response = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt }),
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || `API request failed with status ${response.status}`);
+      }
+      
+      // Store the generated image result and start history
+      if (result.generatedImage) {
+        setErrorMessage(null);
+        setAnalysisResult(result.responseText);
+        
+        // Set the generated image as the current image
+        setCurrentImage(result.generatedImage);
+        setUploadedImage(result.generatedImage); // Also set as uploaded for consistency
+        
+        // Initialize history with the generation prompt
+        const historyItem: ImageHistoryItem = {
+          id: Date.now().toString(),
+          image: result.generatedImage,
+          prompt: `Generated: ${prompt}`,
+          timestamp: Date.now()
+        };
+        
+        setImageHistory([historyItem]);
+        setProcessingState('success');
+        
+        // Clear the prompt for next iteration and switch to edit mode
+        setPrompt('');
+        setIsGenerateMode(false);
+      } else {
+        throw new Error('No image was generated');
+      }
+      
+    } catch (error) {
+      console.error('Error generating image:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to generate image');
+      setProcessingState('error');
+    }
   };
 
   const processImageWithGemini = async (imageData: string, prompt: string) => {
@@ -142,29 +197,77 @@ export default function Home() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     
-    if (!currentImage || !prompt.trim()) {
-      setErrorMessage('Please provide both an image and a prompt');
+    if (!prompt.trim()) {
+      setErrorMessage('Please provide a prompt');
       return;
     }
     
-    await processImageWithGemini(currentImage, prompt);
+    if (isGenerateMode) {
+      // Generate new image from text prompt
+      await generateImageWithGemini(prompt);
+    } else {
+      // Edit existing image
+      if (!currentImage) {
+        setErrorMessage('Please upload an image or switch to generate mode');
+        return;
+      }
+      await processImageWithGemini(currentImage, prompt);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4">
       <div className="max-w-4xl mx-auto py-8">
         <h1 className="text-4xl font-bold text-center text-gray-900 dark:text-white mb-2">
-          YouTube Thumbnail Editor
+          YouTube Thumbnail {isGenerateMode ? 'Generator' : 'Editor'}
         </h1>
-        <p className="text-center text-gray-600 dark:text-gray-300 mb-12">
-          Upload your thumbnail and enter a prompt to get started
+        <p className="text-center text-gray-600 dark:text-gray-300 mb-8">
+          {isGenerateMode 
+            ? 'Describe your thumbnail idea and AI will generate it as a wide angle YouTube thumbnail'
+            : 'Upload your thumbnail and enter a prompt to get started'
+          }
         </p>
+
+        {/* Mode Toggle */}
+        <div className="flex justify-center mb-12">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-1 shadow-lg">
+            <div className="flex">
+              <button
+                onClick={() => {
+                  setIsGenerateMode(false);
+                  setErrorMessage(null);
+                }}
+                className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                  !isGenerateMode
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                🇪 Edit Image
+              </button>
+              <button
+                onClick={() => {
+                  setIsGenerateMode(true);
+                  setErrorMessage(null);
+                }}
+                className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                  isGenerateMode
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                ✨ Generate Image
+              </button>
+            </div>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Image Upload/Display Area */}
-          <div className="flex justify-center">
-            <div className="w-full max-w-2xl">
-              {!currentImage ? (
+          {!isGenerateMode && (
+            <div className="flex justify-center">
+              <div className="w-full max-w-2xl">
+                {!currentImage ? (
                 <div
                   className={`relative border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
                     isDragging
@@ -243,19 +346,67 @@ export default function Home() {
                 </div>
               )}
             </div>
-          </div>
+            </div>
+          )}
+
+          {/* Generated Image Display (shown after generation) */}
+          {isGenerateMode && currentImage && (
+            <div className="flex justify-center">
+              <div className="w-full max-w-2xl">
+                <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                  <div className="aspect-video relative">
+                    <Image
+                      src={currentImage}
+                      alt="Generated thumbnail"
+                      fill
+                      className="object-contain"
+                    />
+                  </div>
+                  <div className="p-4 bg-gray-50 dark:bg-gray-700 flex justify-between items-center">
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                      ✨ Generated - Now you can edit it further below!
+                    </div>
+                    <div className="flex space-x-2">
+                      <a
+                        href={currentImage}
+                        download="generated-thumbnail.png"
+                        className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
+                      >
+                        Download
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentImage(null);
+                          setUploadedImage(null);
+                          setImageHistory([]);
+                          setProcessingState('idle');
+                          setErrorMessage(null);
+                        }}
+                        className="text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 font-medium"
+                      >
+                        Start over
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Prompt Input */}
           <div className="flex justify-center">
             <div className="w-full max-w-2xl">
               <label htmlFor="prompt" className="block text-lg font-medium text-gray-900 dark:text-white mb-4 text-center">
-                Enter your editing prompt
+                {isGenerateMode ? 'Describe your thumbnail idea' : 'Enter your editing prompt'}
               </label>
               <textarea
                 id="prompt"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe what you'd like to do with this thumbnail... (e.g., 'Add a bright yellow border and make the text more dramatic')"
+                placeholder={isGenerateMode 
+                  ? "Describe the wide angle YouTube thumbnail you want to generate... (e.g., 'A tech YouTuber with surprised expression, bright colors, bold 'AMAZING!' text overlay')"
+                  : "Describe what you'd like to do with this thumbnail... (e.g., 'Add a bright yellow border and make the text more dramatic')"}
                 rows={4}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 resize-none text-base"
               />
@@ -266,7 +417,7 @@ export default function Home() {
           <div className="flex justify-center">
             <button
               type="submit"
-              disabled={!currentImage || !prompt.trim() || processingState === 'processing'}
+              disabled={(!isGenerateMode && !currentImage) || !prompt.trim() || processingState === 'processing'}
               className="px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg shadow-md transition-colors text-lg flex items-center space-x-2"
             >
               {processingState === 'processing' && (
@@ -276,7 +427,10 @@ export default function Home() {
                 </svg>
               )}
               <span>
-                {processingState === 'processing' ? 'Editing...' : 'Edit Thumbnail'}
+                {processingState === 'processing' 
+                  ? (isGenerateMode ? 'Generating...' : 'Editing...')
+                  : (isGenerateMode ? 'Generate Thumbnail' : (currentImage ? 'Edit Thumbnail' : 'Upload Image First'))
+                }
               </span>
             </button>
           </div>
