@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ytdl-core temporary files
+*-player-script.js
+
+# test files
+test*.js
+test*.json
+
+# vercel
+.vercel

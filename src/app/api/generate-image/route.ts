@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest, NextResponse } from 'next/server';
+import sharp from 'sharp';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     console.log('API Key configured:', process.env.GEMINI_API_KEY ? 'Yes' : 'No');
 
     const body = await request.json();
-    const { prompt } = body;
+    const { prompt, template, width, height } = body;
 
     if (!prompt) {
       return NextResponse.json(
@@ -26,11 +27,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Try different model names for image generation
+    if (!template || !width || !height) {
+      return NextResponse.json(
+        { error: 'Template image, width, and height are required for template-based generation' },
+        { status: 400 }
+      );
+    }
+
+    // Use Gemini Flash 2.5 as primary model for image generation
     const modelNames = [
-      'gemini-2.5-flash-image-preview',
-      'gemini-2.0-flash-exp', 
-      'gemini-1.5-pro-002'
+      'gemini-2.5-flash-image-preview' // Gemini Flash 2.5 - best for image generation
     ];
     
     let model;
@@ -46,8 +52,8 @@ export async function POST(request: NextRequest) {
             temperature: 0.7, // Balanced creativity
             topP: 0.9,
             topK: 40
-          },
-          systemInstruction: "You are an expert YouTube thumbnail generator. Always create wide angle images in landscape/horizontal format. Generate widescreen thumbnails that are perfect for YouTube."
+          }
+          // Note: systemInstruction removed for better model compatibility
         });
         
         console.log(`Model ${modelName} initialized successfully`);
@@ -69,19 +75,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the content for image generation requesting wide angle format
-    const content = `Generate a wide angle YouTube thumbnail image based on this description: "${prompt}". 
-
-    Create a high-quality, eye-catching thumbnail that would be perfect for YouTube:
-    - Use wide angle format (horizontal/landscape orientation)
-    - Design as a widescreen image
-    - Vibrant, engaging colors that pop on YouTube
-    - Bold, readable text if appropriate (large enough to read on mobile)
-    - High contrast and visual impact for small preview sizes
-    - Professional YouTube thumbnail style
-    - Eye-catching composition that drives clicks
+    // Extract template image data (remove the data URL prefix)
+    const templateBase64 = template.split(',')[1];
     
-    Generate the wide angle thumbnail image directly.`;
+    // Create the content for image generation using the template canvas
+    const content = [
+      {
+        inlineData: {
+          data: templateBase64,
+          mimeType: template.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+        }
+      },
+      {
+        text: `CRITICAL: You MUST generate an image at exactly ${width}×${height} pixels. This is NOT optional.
+        
+        I'm providing a template canvas that is exactly ${width}×${height} pixels (aspect ratio ${(width/height).toFixed(2)}:1). You must match these exact dimensions.
+        
+        Task: Create a YouTube thumbnail: "${prompt}"
+        
+        ABSOLUTE REQUIREMENTS - NO EXCEPTIONS:
+        - Output dimensions: EXACTLY ${width}×${height} pixels
+        - Aspect ratio: EXACTLY ${(width/height).toFixed(2)}:1
+        - DO NOT generate 1024x1024, 512x512, or any square format
+        - DO NOT generate any size other than ${width}×${height}
+        - The image content must fill the entire ${width}×${height} canvas naturally
+        - Generate WIDE format content that fits ${width}×${height}, not square content
+        
+        Template guidance:
+        - This template canvas defines the exact output dimensions needed
+        - Use the template as a size reference for proper proportions
+        - Generate content that naturally fits this specific canvas size
+        - Respect the aspect ratio to avoid distortion
+        
+        Content requirements:
+        - High-quality YouTube thumbnail suitable for the given dimensions
+        - Vibrant, engaging colors that work well on YouTube
+        - Clear, readable text if needed (sized appropriately for the canvas dimensions)
+        - Professional thumbnail composition that fits the aspect ratio
+        - Eye-catching design that drives clicks
+        
+        Generate the thumbnail image now at exactly ${width}×${height} pixels to match the template canvas.`
+      }
+    ];
 
     // Generate the response
     const response = await model.generateContent(content);
@@ -108,12 +143,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      generatedImage: `data:image/png;base64,${generatedImageBase64}`,
-      responseText: responseText,
-      message: 'Image generated successfully'
-    });
+    try {
+      // Process the generated image with Sharp to ensure exact dimensions
+      const imageBuffer = Buffer.from(generatedImageBase64, 'base64');
+      
+      // Get the current image dimensions
+      const metadata = await sharp(imageBuffer).metadata();
+      console.log(`Generated image dimensions: ${metadata.width}x${metadata.height}`);
+      console.log(`Target template dimensions: ${width}x${height}`);
+      
+      let processedImageBuffer: Buffer = imageBuffer;
+      
+      // If dimensions don't match the template, resize to exact dimensions
+      if (metadata.width !== width || metadata.height !== height) {
+        console.log(`Resizing image from ${metadata.width}x${metadata.height} to ${width}x${height}`);
+        
+        const resizedBuffer = await sharp(imageBuffer)
+          .resize(width, height, { 
+            // Fill the entire canvas by cropping center - no white padding
+            fit: 'cover',
+            position: 'center'
+          })
+          .png()
+          .toBuffer();
+        
+        processedImageBuffer = Buffer.from(resizedBuffer);
+      }
+      
+      // Convert back to base64
+      const finalImageBase64 = processedImageBuffer.toString('base64');
+      
+      return NextResponse.json({
+        success: true,
+        generatedImage: `data:image/png;base64,${finalImageBase64}`,
+        responseText: responseText,
+        message: 'Image generated successfully',
+        dimensions: {
+          original: { width: metadata.width, height: metadata.height },
+          final: { width, height },
+          resized: metadata.width !== width || metadata.height !== height
+        }
+      });
+      
+    } catch (imageProcessingError) {
+      console.error('Error processing generated image:', imageProcessingError);
+      
+      // If Sharp processing fails, return the original image
+      return NextResponse.json({
+        success: true,
+        generatedImage: `data:image/png;base64,${generatedImageBase64}`,
+        responseText: responseText,
+        message: 'Image generated successfully (dimensions may not match template exactly)',
+        warning: 'Image processing failed, dimensions may differ from template'
+      });
+    }
 
   } catch (error) {
     console.error('Error generating image:', error);
